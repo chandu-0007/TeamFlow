@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "exports": {
-    "." :"./src/index.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -20,6 +20,7 @@
   "dependencies": {
     "@prisma/adapter-neon": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "dotenv": "^18.0.4"
+    "dotenv": "^18.0.4",
+    "redis": "^6.3.0"
   }
 }
