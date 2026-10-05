@@ -4,8 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsc -b && node dist/index.js"
+    "build": "tsc -b",
+    "check-types": "tsc --noEmit",
+    "dev": "tsc -b && node --env-file=../../.env dist/index.js",
+    "start": "node --env-file=../../.env dist/index.js",
+    "lint": "echo \"No lint configured for @teamflow/api\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
