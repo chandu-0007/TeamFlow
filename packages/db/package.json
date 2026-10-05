@@ -1,18 +1,17 @@
 {
   "name": "@teamflow/db",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
+    "build": "prisma generate && tsc",
+    "check-types": "tsc --noEmit",
+    "generate": "prisma generate",
+    "lint": "echo \"No lint configured for @teamflow/db\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "@types/node": "26.4.1",
     "prisma": "^7.10.0"
