@@ -27,6 +27,7 @@ model User {
 
   memberships        OrganizationMember[]
   ownedOrganizations Organization[]
+  sentInvitations    OrganizationInvitation[] @relation("InvitationsSent")
 }
 
 model Organization {
@@ -46,6 +47,7 @@ model Organization {
   owner       User @relation(fields: [ownerId],references: [id])
 
   members     OrganizationMember[]
+  invitations OrganizationInvitation[]
 }
 
 
@@ -67,6 +69,26 @@ model OrganizationMember {
   @@index([userId])
 }
 
+model OrganizationInvitation {
+  id             String           @id @default(uuid())
+  organizationId String
+  email          String
+  role           OrganizationRole @default(MEMBER)
+  token          String           @unique
+  invitedById    String
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy      User             @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([token])
+}
 
 enum OrganizationRole {
   OWNER
@@ -74,4 +96,11 @@ enum OrganizationRole {
   MANAGER
   MEMBER
   VIEWER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
 }
