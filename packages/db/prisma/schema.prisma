@@ -28,6 +28,8 @@ model User {
   memberships        OrganizationMember[]
   ownedOrganizations Organization[]
   sentInvitations    OrganizationInvitation[] @relation("InvitationsSent")
+  projects           Project[]
+  ProjectMember      ProjectMember[]
 }
 
 model Organization {
@@ -48,6 +50,7 @@ model Organization {
 
   members     OrganizationMember[]
   invitations OrganizationInvitation[]
+  projects    Project[]
 }
 
 
@@ -103,4 +106,56 @@ enum InvitationStatus {
   ACCEPTED
   REJECTED
   EXPIRED
+}
+
+
+model Project {
+  id             String   @id @default(uuid())
+  name           String
+  slug           String
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+
+  createdBy      String
+  organizationId String
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  creator        User @relation(fields: [createdBy], references: [id])
+
+  projectMembers ProjectMember[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([createdBy])
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(MEMBER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId],references: [id],onDelete: Cascade)
+
+  user      User @relation(fields: [userId],references: [id],onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+enum ProjectRole {
+  TEAMLEAD
+  MEMBER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
 }

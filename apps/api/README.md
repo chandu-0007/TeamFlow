@@ -699,3 +699,294 @@ Allows a member to voluntarily leave an organization.
   }
   ```
 - **Errors**: `400 Bad Request` (owner cannot leave without transferring ownership or deleting the organization).
+
+
+---
+
+## Project Endpoints
+
+Projects belong to an Organization:
+```text
+Organization
+  │
+  ├── Project A
+  ├── Project B
+  └── Project C
+```
+
+- Project Roles: `TEAMLEAD`, `MEMBER`.
+- Project Statuses: `ACTIVE`, `ARCHIVED`.
+- Only members of the parent organization can be added to its projects.
+- Creating a project automatically designates the creator as `TEAMLEAD`.
+
+### 1. Create Project
+Creates a new project inside an organization.
+
+- **Method**: `POST`
+- **Route**: `/api/organizations/:organizationId/projects` *(or `/api/projects` with `organizationId` in body)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization (`MEMBER` or higher)
+- **Request Body**:
+  ```json
+  {
+    "name": "Backend Refactor",
+    "slug": "backend-refactor",
+    "description": "Migrating APIs and database queries"
+  }
+  ```
+  *(Only `name` is required; `slug` will be automatically generated if omitted)*.
+- **Response `201 Created`**:
+  ```json
+  {
+    "message": "Project created successfully",
+    "project": {
+      "id": "p1234",
+      "name": "Backend Refactor",
+      "slug": "backend-refactor",
+      "description": "Migrating APIs and database queries",
+      "status": "ACTIVE",
+      "createdBy": "usr_123",
+      "organizationId": "org_456",
+      "createdAt": "2026-10-05T12:00:00.000Z",
+      "updatedAt": "2026-10-05T12:00:00.000Z"
+    }
+  }
+  ```
+
+---
+
+### 2. List Projects in Organization
+Lists all projects belonging to an organization.
+
+- **Method**: `GET`
+- **Route**: `/api/organizations/:organizationId/projects` *(or `/api/projects?organizationId=...`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Query Parameters**:
+  - `status`: Optional filter (`ACTIVE` or `ARCHIVED`).
+- **Response `200 OK`**:
+  ```json
+  {
+    "count": 2,
+    "projects": [
+      {
+        "id": "p1234",
+        "name": "Backend Refactor",
+        "slug": "backend-refactor",
+        "status": "ACTIVE",
+        "creator": {
+          "id": "usr_123",
+          "name": "Alex Johnson",
+          "email": "alex@example.com"
+        },
+        "_count": {
+          "projectMembers": 3
+        }
+      }
+    ]
+  }
+  ```
+
+---
+
+### 3. Get Project Details
+Returns project details, including parent organization, creator, member count, and caller's project role.
+
+- **Method**: `GET`
+- **Route**: `/api/projects/:id`
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Response `200 OK`**:
+  ```json
+  {
+    "project": {
+      "id": "p1234",
+      "name": "Backend Refactor",
+      "slug": "backend-refactor",
+      "status": "ACTIVE",
+      "organization": {
+        "id": "org_456",
+        "name": "TeamFlow Labs",
+        "slug": "teamflow-labs"
+      },
+      "creator": { ... },
+      "projectMembers": [ ... ],
+      "_count": {
+        "projectMembers": 3
+      }
+    },
+    "userProjectRole": "TEAMLEAD"
+  }
+  ```
+
+---
+
+### 4. Update Project
+Updates project name, slug, or description.
+
+- **Method**: `PATCH`
+- **Route**: `/api/projects/:id`
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Request Body**:
+  ```json
+  {
+    "name": "Backend Refactor v2",
+    "description": "Expanded migration scope"
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Project updated successfully",
+    "project": { ... }
+  }
+  ```
+
+---
+
+### 5. Archive Project
+Toggles or sets project status between `ACTIVE` and `ARCHIVED`.
+
+- **Method**: `PATCH`
+- **Route**: `/api/projects/:id/archive`
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Request Body** *(Optional)*:
+  ```json
+  {
+    "status": "ARCHIVED"
+  }
+  ```
+  *(If body is omitted, toggles the current status)*.
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Project archived successfully",
+    "project": {
+      "id": "p1234",
+      "status": "ARCHIVED"
+    }
+  }
+  ```
+
+---
+
+### 6. Delete Project
+Permanently deletes a project and cascades to all its project memberships.
+
+- **Method**: `DELETE`
+- **Route**: `/api/projects/:id`
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Project deleted successfully"
+  }
+  ```
+
+---
+
+### 7. Add Project Member
+Adds a user to a project. **The user must already be an active member of the parent organization.**
+
+- **Method**: `POST`
+- **Route**: `/api/projects/:id/members`
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Request Body**:
+  ```json
+  {
+    "email": "dev@example.com",
+    "role": "MEMBER"
+  }
+  ```
+  *(Accepts either `userId` or `email`, and `role`: `"MEMBER"` or `"TEAMLEAD"`)*.
+- **Response `201 Created`**:
+  ```json
+  {
+    "message": "Project member added successfully",
+    "member": {
+      "id": "pm_123",
+      "projectId": "p1234",
+      "userId": "usr_789",
+      "role": "MEMBER",
+      "user": {
+        "id": "usr_789",
+        "name": "Sarah Connor",
+        "email": "dev@example.com"
+      }
+    }
+  }
+  ```
+- **Errors**: `400 Bad Request` (user is not an organization member), `409 Conflict` (already in project).
+
+---
+
+### 8. List Project Members
+Lists all members assigned to a project.
+
+- **Method**: `GET`
+- **Route**: `/api/projects/:id/members`
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Response `200 OK`**:
+  ```json
+  {
+    "count": 2,
+    "members": [
+      {
+        "id": "pm_1",
+        "role": "TEAMLEAD",
+        "user": { ... }
+      },
+      {
+        "id": "pm_2",
+        "role": "MEMBER",
+        "user": { ... }
+      }
+    ]
+  }
+  ```
+
+---
+
+### 9. Change Project Member Role
+Updates a member's role in a project (`TEAMLEAD` or `MEMBER`).
+
+- **Method**: `PATCH`
+- **Route**: `/api/projects/:id/members/:memberId/role`
+  *(Note: `:memberId` can be the `ProjectMember.id` or the user's `userId`)*.
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Request Body**:
+  ```json
+  {
+    "role": "TEAMLEAD"
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Project member role updated successfully",
+    "member": { ... }
+  }
+  ```
+
+---
+
+### 10. Remove Project Member
+Removes a member from a project.
+
+- **Method**: `DELETE`
+- **Route**: `/api/projects/:id/members/:memberId`
+  *(Note: `:memberId` can be the `ProjectMember.id` or the user's `userId`)*.
+- **Auth Required**: Yes
+- **Permissions Required**: Project `TEAMLEAD`, Organization `ADMIN`, or Organization `OWNER`
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Member Sarah Connor removed from project successfully"
+  }
+  ```
