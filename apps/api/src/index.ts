@@ -17,6 +17,8 @@ import cookieParser from "cookie-parser";
 import { connectRedis } from "@teamflow/db";
 import authRouter from "./routes/auth.routes.js";
 import organizationRouter from "./routes/organization.routes.js";
+import projectRouter from "./routes/project.routes.js";
+import taskRouter from "./routes/task.routes.js";
 
 const app: Express = express();
 
@@ -49,6 +51,10 @@ app.get("/health-check", (_req, res) => {
 // Routes
 app.use("/api/auth", authRouter);
 app.use("/api/organizations", organizationRouter);
+app.use("/api/projects", projectRouter);
+app.use("/projects", projectRouter);
+app.use("/api/tasks", taskRouter);
+app.use("/tasks", taskRouter);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

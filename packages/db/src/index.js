@@ -19,9 +19,20 @@ export const prisma = new PrismaClient({
 });
 export const redis = createClient({
     url: process.env.REDIS_URL || "redis://localhost:6379",
+    socket: {
+        reconnectStrategy: (retries) => {
+            if (retries > 3) {
+                return false; // Stop reconnecting after 3 attempts
+            }
+            return 500;
+        },
+    },
 });
 redis.on("error", (err) => {
-    console.error("Redis error:", err);
+    // Only log if unexpected
+    if (err.code !== "ECONNREFUSED") {
+        console.error("Redis error:", err);
+    }
 });
 export async function connectRedis() {
     if (!redis.isOpen) {
