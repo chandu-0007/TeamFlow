@@ -51,4 +51,10 @@ router.post("/:id/invitations", requireOrgMember, requireOrgRole("MANAGER"), inv
 router.post("/:id/invite", requireOrgMember, requireOrgRole("MANAGER"), inviteMember);
 router.get("/:id/invitations", requireOrgMember, requireOrgRole("MANAGER"), listInvitations);
 
+// ----------------------------------------------------
+// Projects for Organization
+// ----------------------------------------------------
+import projectRouter from "./project.routes.js";
+router.use("/:organizationId/projects", projectRouter);
+
 export default router;

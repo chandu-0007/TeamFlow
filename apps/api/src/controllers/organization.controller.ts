@@ -99,9 +99,6 @@ const ChangeRoleValidation = z.object({
     role: z.enum(["ADMIN", "MANAGER", "MEMBER", "VIEWER"] as const),
 });
 
-// ----------------------------------------------------
-// 1. Create Organization
-// ----------------------------------------------------
 export async function createOrganization(req: Request, res: Response) {
     if (!req.user?.userId) {
         return res.status(401).json({ message: "Authentication required" });
@@ -203,9 +200,7 @@ export async function listUserOrganizations(req: Request, res: Response) {
     }
 }
 
-// ----------------------------------------------------
-// 3. Get Organization Details
-// ----------------------------------------------------
+
 export async function getOrganization(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
 
@@ -244,9 +239,7 @@ export async function getOrganization(req: Request, res: Response) {
     }
 }
 
-// ----------------------------------------------------
-// 4. Update Organization
-// ----------------------------------------------------
+
 export async function updateOrganization(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
 
@@ -417,9 +410,6 @@ export async function inviteMember(req: Request, res: Response) {
     }
 }
 
-// ----------------------------------------------------
-// 7. Accept Invitation
-// ----------------------------------------------------
 export async function acceptInvitation(req: Request, res: Response) {
     if (!req.user?.userId) {
         return res.status(401).json({ message: "Authentication required to accept an invitation" });
@@ -509,9 +499,6 @@ export async function acceptInvitation(req: Request, res: Response) {
     }
 }
 
-// ----------------------------------------------------
-// 8. Remove Member
-// ----------------------------------------------------
 export async function removeMember(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
     const memberId = getParam(req.params.memberId);
@@ -555,9 +542,7 @@ export async function removeMember(req: Request, res: Response) {
     }
 }
 
-// ----------------------------------------------------
-// 9. Change Member Role
-// ----------------------------------------------------
+
 export async function changeMemberRole(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
     const memberId = getParam(req.params.memberId);
@@ -590,7 +575,6 @@ export async function changeMemberRole(req: Request, res: Response) {
 
         const requesterRole = req.membership?.role;
 
-        // Admins cannot alter other Admins' roles, nor promote someone to Admin
         if (requesterRole === "ADMIN") {
             if (targetMember.role === "ADMIN") {
                 return res.status(403).json({ message: "Admins cannot change the role of other Admins" });
