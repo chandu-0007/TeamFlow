@@ -12,60 +12,60 @@ datasource db {
   provider = "postgresql"
 }
 
-
 model User {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   name            String
-  email           String   @unique
+  email           String    @unique
   passwordHash    String
-  emailVerified   Boolean  @default(false)
+  emailVerified   Boolean   @default(false)
   emailVerifiedAt DateTime?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   memberships        OrganizationMember[]
   ownedOrganizations Organization[]
   sentInvitations    OrganizationInvitation[] @relation("InvitationsSent")
   projects           Project[]
-  ProjectMember      ProjectMember[]
+  createdTasks      Task[]        @relation("TaskCreator")
+  projectMembers    ProjectMember[]
+  assignedTasks     Task[]        @relation("TaskAssignee")
+   
 }
 
 model Organization {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
-  slug        String   @unique
+  slug        String  @unique
   description String?
   websiteUrl  String?
   linkedinUrl String?
   logoUrl     String?
 
-  ownerId     String
+  ownerId String
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  owner       User @relation(fields: [ownerId],references: [id])
+  owner User @relation(fields: [ownerId], references: [id])
 
   members     OrganizationMember[]
   invitations OrganizationInvitation[]
   projects    Project[]
 }
 
-
 model OrganizationMember {
-  id             String   @id @default(uuid())
+  id             String           @id @default(uuid())
   userId         String
   organizationId String
   role           OrganizationRole @default(MEMBER)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId],references: [id],onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  organization Organization @relation( fields: [organizationId],references: [id],onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -82,15 +82,14 @@ model OrganizationInvitation {
   status         InvitationStatus @default(PENDING)
   expiresAt      DateTime
 
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invitedBy      User             @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([email])
-  @@index([token])
 }
 
 enum OrganizationRole {
@@ -108,28 +107,28 @@ enum InvitationStatus {
   EXPIRED
 }
 
-
 model Project {
-  id             String   @id @default(uuid())
-  name           String
-  slug           String
-  description    String?
-  status         ProjectStatus @default(ACTIVE)
+  id          String        @id @default(uuid())
+  name        String
+  slug        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
 
   createdBy      String
   organizationId String
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  creator        User @relation(fields: [createdBy], references: [id])
+  creator User @relation(fields: [createdBy], references: [id])
 
   projectMembers ProjectMember[]
+  tasks          Task[]
+
 
   @@unique([organizationId, slug])
-  @@index([organizationId])
   @@index([createdBy])
 }
 
@@ -142,9 +141,9 @@ model ProjectMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project   Project @relation(fields: [projectId],references: [id],onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  user      User @relation(fields: [userId],references: [id],onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -158,4 +157,45 @@ enum ProjectRole {
 enum ProjectStatus {
   ACTIVE
   ARCHIVED
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(BACKLOG)
+  priority    TaskPriority @default(MEDIUM)
+
+  projectId  String
+  createdBy  String
+  assigneeId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project @relation(fields: [projectId],references: [id],onDelete : Cascade)
+
+  creator     User @relation ("TaskCreator",fields: [createdBy],references:[id])
+
+  assignee    User? @relation("TaskAssignee",fields: [assigneeId],references: [id],onDelete  : SetNull)
+
+  @@index([projectId])
+  @@index([createdBy])
+  @@index([assigneeId])
+  @@index([projectId, status])
+}
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }

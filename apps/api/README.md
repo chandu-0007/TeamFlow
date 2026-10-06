@@ -990,3 +990,201 @@ Removes a member from a project.
     "message": "Member Sarah Connor removed from project successfully"
   }
   ```
+
+
+---
+
+## Task Endpoints
+
+Tasks are work items belonging to a Project:
+```text
+Organization
+  │
+  └── Project
+        │
+        ├── Task 1 (Assignee, Status, Priority)
+        ├── Task 2
+        └── Task 3
+```
+
+- **Task Statuses**: `BACKLOG`, `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` (Default: `BACKLOG`).
+- **Task Priorities**: `LOW`, `MEDIUM`, `HIGH`, `URGENT` (Default: `MEDIUM`).
+- **Assignees**: Must be an active member of the project's parent organization.
+
+### 1. Create Task
+Creates a new task in a project.
+
+- **Method**: `POST`
+- **Route**: `/projects/:projectId/tasks` *(alias: `/api/projects/:projectId/tasks`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Request Body**:
+  ```json
+  {
+    "title": "Implement OAuth2 PKCE Flow",
+    "description": "Build robust authorization code with PKCE verification",
+    "priority": "HIGH",
+    "status": "TODO",
+    "assigneeId": "c1f7b884-18e4-4d1a-824b-2292d3f787e9"
+  }
+  ```
+  *(Only `title` is required; `assigneeId` is optional)*.
+- **Response `201 Created`**:
+  ```json
+  {
+    "message": "Task created successfully",
+    "task": {
+      "id": "t123",
+      "title": "Implement OAuth2 PKCE Flow",
+      "description": "Build robust authorization code with PKCE verification",
+      "status": "TODO",
+      "priority": "HIGH",
+      "projectId": "p1234",
+      "createdBy": "usr_123",
+      "assigneeId": "usr_456",
+      "createdAt": "2026-10-06T10:00:00.000Z",
+      "updatedAt": "2026-10-06T10:00:00.000Z",
+      "creator": {
+        "id": "usr_123",
+        "name": "Alex Johnson",
+        "email": "alex@example.com"
+      },
+      "assignee": {
+        "id": "usr_456",
+        "name": "Sarah Connor",
+        "email": "sarah@example.com"
+      }
+    }
+  }
+  ```
+- **Errors**: `400 Bad Request` (assignee not in org, or project archived), `403 Forbidden`, `404 Not Found`.
+
+---
+
+### 2. List Tasks in Project
+Lists and filters all tasks in a project.
+
+- **Method**: `GET`
+- **Route**: `/projects/:projectId/tasks` *(alias: `/api/projects/:projectId/tasks`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Query Parameters**:
+  - `status`: Optional filter (`BACKLOG`, `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`).
+  - `priority`: Optional filter (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
+  - `assigneeId`: Optional filter (`<USER_ID>` or `unassigned`).
+  - `search`: Search query matching task title or description.
+  - `page`: Page number (default: `1`).
+  - `limit`: Items per page (default: `50`, max: `100`).
+  - `sortBy`: Field to sort by (`createdAt`, `updatedAt`, `priority`, `status`, `title`).
+  - `order`: `asc` or `desc` (default: `desc`).
+- **Response `200 OK`**:
+  ```json
+  {
+    "count": 1,
+    "total": 1,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1,
+    "tasks": [
+      {
+        "id": "t123",
+        "title": "Implement OAuth2 PKCE Flow",
+        "status": "TODO",
+        "priority": "HIGH",
+        "creator": { ... },
+        "assignee": { ... }
+      }
+    ]
+  }
+  ```
+
+---
+
+### 3. Get Task Details
+Returns complete task details including project, parent organization, creator, and assignee.
+
+- **Method**: `GET`
+- **Route**: `/tasks/:taskId` *(alias: `/api/tasks/:taskId`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Response `200 OK`**:
+  ```json
+  {
+    "task": {
+      "id": "t123",
+      "title": "Implement OAuth2 PKCE Flow",
+      "description": "Build robust authorization code with PKCE verification",
+      "status": "TODO",
+      "priority": "HIGH",
+      "projectId": "p1234",
+      "createdBy": "usr_123",
+      "assigneeId": "usr_456",
+      "createdAt": "2026-10-06T10:00:00.000Z",
+      "updatedAt": "2026-10-06T10:00:00.000Z",
+      "creator": { ... },
+      "assignee": { ... },
+      "project": {
+        "id": "p1234",
+        "name": "Backend Refactor",
+        "slug": "backend-refactor",
+        "status": "ACTIVE",
+        "organizationId": "org_456",
+        "organization": {
+          "id": "org_456",
+          "name": "TeamFlow Labs",
+          "slug": "teamflow-labs"
+        }
+      }
+    }
+  }
+  ```
+- **Errors**: `403 Forbidden`, `404 Not Found`.
+
+---
+
+### 4. Update Task
+Updates task title, description, status, priority, or assignee.
+
+- **Method**: `PATCH`
+- **Route**: `/tasks/:taskId` *(alias: `/api/tasks/:taskId`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the Organization
+- **Request Body**:
+  ```json
+  {
+    "status": "IN_PROGRESS",
+    "priority": "URGENT",
+    "description": "Work started by dev team"
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Task updated successfully",
+    "task": {
+      "id": "t123",
+      "status": "IN_PROGRESS",
+      "priority": "URGENT",
+      "description": "Work started by dev team",
+      ...
+    }
+  }
+  ```
+- **Errors**: `400 Bad Request` (invalid input or project archived), `403 Forbidden`, `404 Not Found`.
+
+---
+
+### 5. Delete Task
+Deletes a task.
+
+- **Method**: `DELETE`
+- **Route**: `/tasks/:taskId` *(alias: `/api/tasks/:taskId`)*
+- **Auth Required**: Yes
+- **Permissions Required**: Task Creator, Project TeamLead, or Organization Admin/Owner
+- **Response `200 OK`**:
+  ```json
+  {
+    "message": "Task deleted successfully"
+  }
+  ```
+- **Errors**: `403 Forbidden` (insufficient permissions), `404 Not Found`.

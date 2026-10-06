@@ -45,4 +45,13 @@ router.post("/:id/members", requireProjectAccess, requireProjectLeadOrOrgAdmin, 
 router.patch("/:id/members/:memberId/role", requireProjectAccess, requireProjectLeadOrOrgAdmin, changeProjectMemberRole);
 router.delete("/:id/members/:memberId", requireProjectAccess, requireProjectLeadOrOrgAdmin, removeProjectMember);
 
+// ----------------------------------------------------
+// Project Tasks Management
+// ----------------------------------------------------
+import { createTask, listTasks } from "../controllers/task.controller.js";
+router.post("/:projectId/tasks", createTask);
+router.get("/:projectId/tasks", listTasks);
+router.post("/:id/tasks", createTask);
+router.get("/:id/tasks", listTasks);
+
 export default router;
