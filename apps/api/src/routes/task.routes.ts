@@ -12,9 +12,7 @@ const router: ExpressRouter = Router();
 // All task routes require authentication
 router.use(requireAuth);
 
-// ----------------------------------------------------
-// Task Instance Operations
-// ----------------------------------------------------
+
 router.get("/:taskId", getTask);
 router.patch("/:taskId", updateTask);
 router.delete("/:taskId", deleteTask);

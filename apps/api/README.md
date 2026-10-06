@@ -1188,3 +1188,257 @@ Deletes a task.
   }
   ```
 - **Errors**: `403 Forbidden` (insufficient permissions), `404 Not Found`.
+
+
+---
+
+# Core Backend Concepts & Architecture Guide
+*(Use this section to learn, master, and explain the backend engineering principles behind TeamFlow in interviews, presentations, and code reviews).*
+
+---
+
+## 1. ACID Properties Explained with Real Project Code
+
+When designing a production-grade relational database backend, **ACID** guarantees that data operations remain reliable, consistent, and resilient even under heavy concurrency or system crashes.
+
+---
+
+### A — Atomicity ("All or Nothing")
+
+#### The Concept:
+A transaction groups multiple database operations into a single logical unit. If **any** operation within the transaction fails, all preceding changes are completely **rolled back**, leaving the database in its original state.
+
+#### How It Is Used in TeamFlow:
+When a user creates an organization, two separate tables must be updated:
+1. Insert a row into the `Organization` table.
+2. Insert a row into the `OrganizationMember` table assigning the creator as `OWNER`.
+
+Without atomicity, if Step 2 crashes (due to a network error, constraint violation, or server reboot), you would be left with a **corrupted, orphaned organization with no owner and no members**.
+
+#### The Code Implementation:
+In [`apps/api/src/controllers/organization.controller.ts`](file:///c:/Users/chand/Projects/TeamFlow/apps/api/src/controllers/organization.controller.ts):
+
+```typescript
+// Atomicity: If adding the owner membership fails, the organization creation is rolled back.
+const organization = await prisma.$transaction(async (tx) => {
+    // Step 1: Create Organization
+    const org = await tx.organization.create({
+        data: {
+            name,
+            slug,
+            description: description || null,
+            websiteUrl: websiteUrl || null,
+            linkedinUrl: linkedinUrl || null,
+            logoUrl: logoUrl || null,
+            ownerId: req.user!.userId,
+        },
+    });
+
+    // Step 2: Create Owner Membership
+    await tx.organizationMember.create({
+        data: {
+            userId: req.user!.userId,
+            organizationId: org.id,
+            role: "OWNER",
+        },
+    });
+
+    return org;
+});
+```
+
+#### Another Example: Accepting an Invitation
+In [`apps/api/src/controllers/organization.controller.ts`](file:///c:/Users/chand/Projects/TeamFlow/apps/api/src/controllers/organization.controller.ts):
+
+```typescript
+// Atomicity: Adding the member and marking the invitation as ACCEPTED must happen together.
+const membership = await prisma.$transaction(async (tx) => {
+    const member = await tx.organizationMember.create({
+        data: {
+            userId: req.user!.userId,
+            organizationId: invitation.organizationId,
+            role: invitation.role,
+        },
+    });
+
+    await tx.organizationInvitation.update({
+        where: { id: invitation.id },
+        data: { status: "ACCEPTED" },
+    });
+
+    return member;
+});
+```
+
+> **How to explain in an interview**:  
+> *"In TeamFlow, multi-step mutations like organization creation and invitation acceptance are wrapped inside Prisma interactive transactions (`prisma.$transaction`). This enforces atomicity so that if any step throws an error, the database rolls back completely, preventing half-written or orphaned state."*
+
+---
+
+### C — Consistency ("Preserving Invariants and Rules")
+
+#### The Concept:
+Consistency guarantees that the database transitions only from one valid state to another, strictly adhering to all schema definitions, constraints, foreign keys, and application-level business rules.
+
+#### How It Is Used in TeamFlow:
+
+1. **Foreign Key Referential Integrity & Cascades**:  
+   In [`packages/db/prisma/schema.prisma`](file:///c:/Users/chand/Projects/TeamFlow/packages/db/prisma/schema.prisma):
+   ```prisma
+   model Task {
+     id         String   @id @default(uuid())
+     projectId  String
+     assigneeId String?
+
+     // Invariant: A task cannot reference a non-existent project
+     // When a project is deleted, its tasks are automatically deleted
+     project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+     // Invariant: If an assigned user is deleted, assigneeId is set to NULL rather than a broken ID
+     assignee   User?    @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+   }
+   ```
+
+2. **Composite Unique Constraints**:  
+   In [`packages/db/prisma/schema.prisma`](file:///c:/Users/chand/Projects/TeamFlow/packages/db/prisma/schema.prisma):
+   ```prisma
+   model OrganizationMember {
+     // A user cannot be added to the same organization twice
+     @@unique([userId, organizationId])
+   }
+
+   model Project {
+     // Two projects in the same organization cannot have the same slug
+     @@unique([organizationId, slug])
+   }
+
+   model ProjectMember {
+     // A user cannot be added to the same project twice
+     @@unique([projectId, userId])
+   }
+   ```
+
+3. **Application-Level Tenant Invariants**:  
+   In [`apps/api/src/controllers/task.controller.ts`](file:///c:/Users/chand/Projects/TeamFlow/apps/api/src/controllers/task.controller.ts):
+   ```typescript
+   // Cross-tenant Invariant: An assignee must belong to the project's parent organization!
+   if (assigneeId) {
+       const assigneeOrgMembership = await prisma.organizationMember.findUnique({
+           where: {
+               userId_organizationId: {
+                   userId: assigneeId,
+                   organizationId: project.organizationId,
+               },
+           },
+       });
+
+       if (!assigneeOrgMembership) {
+           return res.status(400).json({
+               message: "The assigned user is not a member of this organization.",
+           });
+       }
+   }
+   ```
+
+> **How to explain in an interview**:  
+> *"We enforce consistency on two layers: at the database layer via PostgreSQL foreign keys, `onDelete: Cascade` / `SetNull`, and composite unique constraints (`@@unique`); and at the application layer via Zod schema parsing and multi-tenant boundary checks to ensure foreign entities cannot be cross-assigned."*
+
+---
+
+### I — Isolation ("Preventing Concurrent Collisions")
+
+#### The Concept:
+Isolation ensures that concurrent transactions execute independently without interfering with each other. Intermediate, uncommitted reads from one transaction must not cause dirty reads, non-repeatable reads, or phantom records in another transaction.
+
+#### How It Is Used in TeamFlow:
+
+1. **PostgreSQL MVCC & Row-Level Locking on Unique Keys**:  
+   If two requests simultaneously try to create a project with the same slug `mobile-app` in the same organization:
+   - Both requests execute concurrently.
+   - When both reach the commit phase, PostgreSQL's row-level lock on the `@@unique([organizationId, slug])` B-Tree index guarantees that one transaction commits successfully while the second is rejected with error `P2002` (Unique constraint violation).
+   - Neither transaction overwrites the other.
+
+2. **Atomic Single-Threaded Isolation in Redis**:  
+   In [`apps/api/src/controllers/auth.controller.ts`](file:///c:/Users/chand/Projects/TeamFlow/apps/api/src/controllers/auth.controller.ts) & [`apps/api/src/controllers/email.controller.ts`](file:///c:/Users/chand/Projects/TeamFlow/apps/api/src/controllers/email.controller.ts):
+   ```typescript
+   // Atomic isolation: Redis executes commands sequentially in an event loop
+   await redis.set(`pwd-reset:${user.id}`, otp, { EX: 10 * 60 });
+   await redis.set(`pwd-reset-cooldown:${user.id}`, "1", { EX: 60 });
+   ```
+   Even if an attacker spams thousands of simultaneous requests to generate reset OTPs, Redis serializes each `SET` and `GET` atomically, eliminating race conditions.
+
+> **How to explain in an interview**:  
+> *"PostgreSQL uses Multi-Version Concurrency Control (MVCC) along with row locks on unique index constraints to prevent duplicate entries under race conditions. For ephemeral operations like rate limiting and OTP cooldowns, we use Redis which operates on an atomic, single-threaded execution loop."*
+
+---
+
+### D — Durability ("Surviving Crashes and Power Outages")
+
+#### The Concept:
+Once a transaction is committed, its changes are **permanently saved** to non-volatile storage. Even if the server crashes, power is lost, or the container restarts immediately after, the data will not be lost.
+
+#### How It Works in TeamFlow & PostgreSQL:
+- When `await prisma.task.create(...)` resolves, PostgreSQL has written the transaction to disk in its **Write-Ahead Log (WAL)**.
+- In our Neon Serverless PostgreSQL database, the WAL pages are replicated across multi-AZ storage nodes.
+- If the Node.js Express process terminates or restarts, all persisted records (`User`, `Organization`, `Project`, `Task`) remain completely intact.
+
+> **How to explain in an interview**:  
+> *"Durability is guaranteed by PostgreSQL's Write-Ahead Log (WAL). Before a commit acknowledgement is returned to our API layer, the changes are flushed to durable storage, ensuring that our committed state survives application crashes and restarts."*
+
+---
+
+## 2. Multi-Tenant Architecture & Data Security
+
+TeamFlow is designed as a **hierarchical multi-tenant system**:
+
+```text
+User
+  │
+  └── Organization (Tenant Boundary)
+        │
+        ├── OrganizationMember (OWNER, ADMIN, MANAGER, MEMBER, VIEWER)
+        │
+        └── Project
+              │
+              ├── ProjectMember (TEAMLEAD, MEMBER)
+              │
+              └── Task (Assignee, Status, Priority)
+```
+
+### Data Isolation & IDOR Protection:
+An **IDOR (Insecure Direct Object Reference)** vulnerability occurs when an authenticated user accesses a resource belonging to another organization simply by knowing its UUID.
+
+To prevent IDOR across all endpoints:
+1. Every task endpoint validates that the target task belongs to a project whose `organizationId` matches the caller's membership.
+2. Every project endpoint validates caller membership in the parent organization before returning or mutating data.
+3. Every member assignment validates that the assigned user belongs to that same organization.
+
+---
+
+## 3. Authentication & Security Strategy
+
+1. **Dual Token Delivery**:
+   - **HTTP-Only Cookies**: Automatically set on `signup` and `signin` with `sameSite: "lax"`, `secure` in production, and `httpOnly: true` (protects against XSS token theft).
+   - **Bearer Header**: Supports `Authorization: Bearer <token>` for REST clients (Postman, curl) and mobile apps.
+2. **Password Security**:
+   - Salted and hashed using **Bcrypt with cost factor 12**.
+   - Timing attack mitigation: Consistent comparison paths to prevent email enumeration.
+   - Input normalization: Auto-trimming and lowercasing email addresses before hashing or querying.
+3. **Brute Force Protection**:
+   - OTP verification is tracked in Redis (`email-verify-attempts:${userId}`).
+   - If a caller fails 5 consecutive OTP attempts, the OTP is destroyed, and the caller is locked out with `429 Too Many Requests`.
+
+---
+
+## 4. Interview Cheat Sheet: How to Explain TeamFlow in 2 Minutes
+
+When presenting this project to an interviewer or senior engineer, structure your explanation with this 4-point narrative:
+
+1. **The Product**:
+   > *"TeamFlow is a full-featured project and task management backend built with Express 5, Prisma 7, PostgreSQL, and Redis, structured as a Turborepo monorepo."*
+2. **The Architecture**:
+   > *"The data model follows a multi-tenant hierarchy: Users create Organizations, Organizations host Projects, and Projects contain Tasks with role-based access control ranging from Organization Owner down to Project TeamLead."*
+3. **The Data Integrity (ACID)**:
+   > *"We treat data consistency as a first-class requirement. We use Prisma interactive transactions (`$transaction`) for atomic multi-table operations like organization creation and invitation acceptance. Database integrity is preserved via foreign keys with cascading deletes, composite unique constraints, and multi-tenant invariants."*
+4. **The Security & Resilience**:
+   > *"For security, we employ Bcrypt with cost factor 12, dual JWT delivery via HTTP-only cookies and Bearer headers, and Redis-backed rate limiting with OTP brute-force defense. For developer ergonomics, SMTP failures fall back to terminal logging so endpoint testing is never blocked."*
