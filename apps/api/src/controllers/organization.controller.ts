@@ -5,7 +5,10 @@ import nodemailer from "nodemailer";
 import {
     prisma,
     type OrganizationRole,
+    type InvitationStatus,
+    type Prisma,
 } from "@teamflow/db";
+import { parsePagination, parseSorting, buildPaginationMeta } from "../utils/query.utils.js";
 
 function getParam(param: string | string[] | undefined): string {
     if (Array.isArray(param)) return param[0] || "";
@@ -167,22 +170,62 @@ export async function listUserOrganizations(req: Request, res: Response) {
     }
 
     try {
-        const memberships = await prisma.organizationMember.findMany({
-            where: { userId: req.user.userId },
-            include: {
-                organization: {
-                    include: {
-                        owner: {
-                            select: { id: true, name: true, email: true },
-                        },
-                        _count: {
-                            select: { members: true },
+        const { search, role, sortBy: querySortBy, order: queryOrder, page: queryPage, limit: queryLimit } = req.query;
+
+        const where: Prisma.OrganizationMemberWhereInput = {
+            userId: req.user.userId,
+        };
+
+        if (typeof role === "string" && ["OWNER", "ADMIN", "MANAGER", "MEMBER", "VIEWER"].includes(role)) {
+            where.role = role as OrganizationRole;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            const trimmed = search.trim();
+            where.organization = {
+                OR: [
+                    { name: { contains: trimmed, mode: "insensitive" } },
+                    { slug: { contains: trimmed, mode: "insensitive" } },
+                    { description: { contains: trimmed, mode: "insensitive" } },
+                ],
+            };
+        }
+
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 20);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "name"] as const,
+            "createdAt",
+            "desc"
+        );
+
+        const orderBy: Prisma.OrganizationMemberOrderByWithRelationInput =
+            sortBy === "name"
+                ? { organization: { name: order } }
+                : { createdAt: order };
+
+        const [total, memberships] = await Promise.all([
+            prisma.organizationMember.count({ where }),
+            prisma.organizationMember.findMany({
+                where,
+                skip,
+                take,
+                orderBy,
+                include: {
+                    organization: {
+                        include: {
+                            owner: {
+                                select: { id: true, name: true, email: true },
+                            },
+                            _count: {
+                                select: { members: true, projects: true },
+                            },
                         },
                     },
                 },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+            }),
+        ]);
 
         const organizations = memberships.map((m) => ({
             ...m.organization,
@@ -191,7 +234,7 @@ export async function listUserOrganizations(req: Request, res: Response) {
         }));
 
         return res.status(200).json({
-            count: organizations.length,
+            ...buildPaginationMeta(total, page, limit, organizations.length),
             organizations,
         });
     } catch (error) {
@@ -649,18 +692,59 @@ export async function listMembers(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
 
     try {
-        const members = await prisma.organizationMember.findMany({
-            where: { organizationId },
-            include: {
-                user: {
-                    select: { id: true, name: true, email: true },
+        const { search, role, sortBy: querySortBy, order: queryOrder, page: queryPage, limit: queryLimit } = req.query;
+
+        const where: Prisma.OrganizationMemberWhereInput = {
+            organizationId,
+        };
+
+        if (typeof role === "string" && ["OWNER", "ADMIN", "MANAGER", "MEMBER", "VIEWER"].includes(role)) {
+            where.role = role as OrganizationRole;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            const trimmed = search.trim();
+            where.user = {
+                OR: [
+                    { name: { contains: trimmed, mode: "insensitive" } },
+                    { email: { contains: trimmed, mode: "insensitive" } },
+                ],
+            };
+        }
+
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 20);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "role", "name", "email"] as const,
+            "createdAt",
+            "asc"
+        );
+
+        let orderBy: Prisma.OrganizationMemberOrderByWithRelationInput;
+        if (sortBy === "name" || sortBy === "email") {
+            orderBy = { user: { [sortBy]: order } };
+        } else {
+            orderBy = { [sortBy]: order };
+        }
+
+        const [total, members] = await Promise.all([
+            prisma.organizationMember.count({ where }),
+            prisma.organizationMember.findMany({
+                where,
+                skip,
+                take,
+                orderBy,
+                include: {
+                    user: {
+                        select: { id: true, name: true, email: true },
+                    },
                 },
-            },
-            orderBy: { createdAt: "asc" },
-        });
+            }),
+        ]);
 
         return res.status(200).json({
-            count: members.length,
+            ...buildPaginationMeta(total, page, limit, members.length),
             members,
         });
     } catch (error) {
@@ -676,18 +760,54 @@ export async function listInvitations(req: Request, res: Response) {
     const organizationId = getParam(req.params.id) || getParam(req.params.organizationId);
 
     try {
-        const invitations = await prisma.organizationInvitation.findMany({
-            where: { organizationId },
-            include: {
-                invitedBy: {
-                    select: { id: true, name: true, email: true },
+        const { search, status, role, sortBy: querySortBy, order: queryOrder, page: queryPage, limit: queryLimit } = req.query;
+
+        const where: Prisma.OrganizationInvitationWhereInput = {
+            organizationId,
+        };
+
+        if (typeof status === "string" && ["PENDING", "ACCEPTED", "REJECTED", "EXPIRED"].includes(status)) {
+            where.status = status as InvitationStatus;
+        }
+
+        if (typeof role === "string" && ["OWNER", "ADMIN", "MANAGER", "MEMBER", "VIEWER"].includes(role)) {
+            where.role = role as OrganizationRole;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            where.email = { contains: search.trim(), mode: "insensitive" };
+        }
+
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 20);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "expiresAt", "email", "status", "role"] as const,
+            "createdAt",
+            "desc"
+        );
+
+        const orderBy: Prisma.OrganizationInvitationOrderByWithRelationInput = {
+            [sortBy]: order,
+        };
+
+        const [total, invitations] = await Promise.all([
+            prisma.organizationInvitation.count({ where }),
+            prisma.organizationInvitation.findMany({
+                where,
+                skip,
+                take,
+                orderBy,
+                include: {
+                    invitedBy: {
+                        select: { id: true, name: true, email: true },
+                    },
                 },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+            }),
+        ]);
 
         return res.status(200).json({
-            count: invitations.length,
+            ...buildPaginationMeta(total, page, limit, invitations.length),
             invitations,
         });
     } catch (error) {

@@ -19,6 +19,7 @@ import authRouter from "./routes/auth.routes.js";
 import organizationRouter from "./routes/organization.routes.js";
 import projectRouter from "./routes/project.routes.js";
 import taskRouter from "./routes/task.routes.js";
+import searchRouter from "./routes/search.routes.js";
 
 const app: Express = express();
 
@@ -55,6 +56,8 @@ app.use("/api/projects", projectRouter);
 app.use("/projects", projectRouter);
 app.use("/api/tasks", taskRouter);
 app.use("/tasks", taskRouter);
+app.use("/api/search", searchRouter);
+app.use("/search", searchRouter);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

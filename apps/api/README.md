@@ -111,6 +111,34 @@ Default API Base URL: `http://localhost:4000`
    - [Change Member Role](#10-change-member-role)
    - [Remove Member](#11-remove-member)
    - [Leave Organization](#12-leave-organization)
+4. [Project Endpoints](#project-endpoints)
+   - [Create Project](#1-create-project)
+   - [List Projects in Organization](#2-list-projects-in-organization)
+   - [Get Project Details](#3-get-project-details)
+   - [Update Project](#4-update-project)
+   - [Archive / Unarchive Project](#5-archive--unarchive-project)
+   - [Delete Project](#6-delete-project)
+   - [Add Project Member](#7-add-project-member)
+   - [List Project Members](#8-list-project-members)
+   - [Change Project Member Role](#9-change-project-member-role)
+   - [Remove Project Member](#10-remove-project-member)
+5. [Task Endpoints](#task-endpoints)
+   - [Create Task](#1-create-task)
+   - [List Tasks in Project](#2-list-tasks-in-project)
+   - [Get Task Details](#3-get-task-details)
+   - [Update Task](#4-update-task)
+   - [Delete Task](#5-delete-task)
+6. [Search Endpoints](#search-endpoints)
+   - [Unified Global Search](#1-unified-global-multi-entity-search)
+   - [Dedicated Projects Search](#2-dedicated-projects-search)
+   - [Dedicated Tasks Search](#3-dedicated-tasks-search)
+   - [Organization-Scoped Search](#4-organization-scoped-search)
+7. [Core Backend Concepts & Architecture Guide](#core-backend-concepts--architecture-guide)
+   - [ACID Properties Explained with Real Project Code](#1-acid-properties-explained-with-real-project-code)
+   - [Multi-Tenant Architecture & Data Security](#2-multi-tenant-architecture--data-security)
+   - [Authentication & Security Strategy](#3-authentication--security-strategy)
+   - [Interview Cheat Sheet: How to Explain TeamFlow in 2 Minutes](#4-interview-cheat-sheet-how-to-explain-teamflow-in-2-minutes)
+   - [Search, Indexing & Pagination Engineering Concepts (Senior SDE Guide)](#5-search-indexing--pagination-engineering-concepts-senior-sde-guide)
 
 ---
 
@@ -1190,6 +1218,193 @@ Deletes a task.
 - **Errors**: `403 Forbidden` (insufficient permissions), `404 Not Found`.
 
 
+// ----------------------------------------------------
+// Search Endpoints
+// ----------------------------------------------------
+
+---
+
+## Search Endpoints
+
+TeamFlow provides high-performance multi-tenant search capabilities across Projects, Tasks, and Members. Every search query is strictly isolated to the caller's organization to prevent cross-tenant information leaks (IDOR).
+
+### 1. Unified Global Multi-Entity Search
+Searches across Projects, Tasks, and Organization Members in a single query. Ideal for command palettes (Cmd+K / Ctrl+K) and top-bar search inputs.
+
+- **Method**: `GET`
+- **Route**: `/api/search` *(alias: `/search`)*
+- **Auth Required**: Yes
+- **Query Parameters**:
+  - `q` *(required, string)*: Search keyword.
+  - `organizationId` *(optional, UUID)*: If provided, scopes the search strictly to this organization. **If omitted, searches across ALL organizations the authenticated user belongs to!**
+  - `type` *(optional)*: `all` (default), `organizations`, `projects`, `tasks`, or `members`.
+  - `limit` *(optional, integer)*: Maximum items returned per category (default: 10, max: 50).
+- **Response `200 OK`**:
+  ```json
+  {
+    "query": "design",
+    "organizationId": "e2a3c790-a29d-4cb1-807d-304a43b23612",
+    "counts": {
+      "projects": 1,
+      "tasks": 2,
+      "members": 1,
+      "total": 4
+    },
+    "results": {
+      "projects": [
+        {
+          "id": "p1234",
+          "name": "Website Redesign",
+          "slug": "website-redesign",
+          "description": "Revamping homepage and UI tokens",
+          "status": "ACTIVE",
+          "createdAt": "2026-10-06T10:00:00.000Z",
+          "updatedAt": "2026-10-06T11:00:00.000Z"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t101",
+          "title": "Design Landing Page",
+          "status": "TODO",
+          "priority": "HIGH",
+          "project": {
+            "id": "p1234",
+            "name": "Website Redesign",
+            "slug": "website-redesign"
+          },
+          "assignee": {
+            "id": "usr_1",
+            "name": "Alex Johnson",
+            "email": "alex@example.com"
+          }
+        }
+      ],
+      "members": [
+        {
+          "id": "mem_1",
+          "role": "ADMIN",
+          "user": {
+            "id": "usr_2",
+            "name": "Design Lead",
+            "email": "designer@teamflow.dev"
+          },
+          "joinedAt": "2026-10-05T10:00:00.000Z"
+        }
+      ]
+    }
+  }
+  ```
+- **Errors**: `400 Bad Request` (missing organizationId), `403 Forbidden` (caller not a member).
+
+---
+
+### 2. Dedicated Projects Search
+Dedicated endpoint for searching projects in an organization with status filtering, dynamic sorting, and pagination.
+
+- **Method**: `GET`
+- **Route**: `/api/search/projects` *(alias: `/api/projects/search`)*
+- **Auth Required**: Yes
+- **Query Parameters**:
+  - `organizationId` *(required, UUID)*: The organization ID.
+  - `q` *(optional, string)*: Keyword matching name, slug, or description (case-insensitive).
+  - `status` *(optional)*: `ACTIVE` or `ARCHIVED`.
+  - `sortBy` *(optional)*: `createdAt`, `updatedAt`, `name`, or `status` (default: `updatedAt`).
+  - `order` *(optional)*: `asc` or `desc` (default: `desc`).
+  - `page` *(optional, integer)*: 1-indexed page (default: 1).
+  - `limit` *(optional, integer)*: Items per page (default: 20, max: 100).
+- **Response `200 OK`**:
+  ```json
+  {
+    "query": "mobile",
+    "organizationId": "e2a3c790-a29d-4cb1-807d-304a43b23612",
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 1,
+    "count": 1,
+    "projects": [
+      {
+        "id": "p5678",
+        "name": "Mobile App iOS",
+        "slug": "mobile-app-ios",
+        "description": "Native iOS client",
+        "status": "ACTIVE",
+        "creator": {
+          "id": "usr_1",
+          "name": "Alex Johnson",
+          "email": "alex@example.com"
+        },
+        "_count": {
+          "projectMembers": 4,
+          "tasks": 12
+        }
+      }
+    ]
+  }
+  ```
+
+---
+
+### 3. Dedicated Tasks Search
+Search tasks across an entire organization (or scoped to a specific project) with status, priority, and assignee filters.
+
+- **Method**: `GET`
+- **Route**: `/api/search/tasks`
+- **Auth Required**: Yes
+- **Query Parameters**:
+  - `organizationId` *(required, UUID)*: The parent organization.
+  - `projectId` *(optional, UUID)*: Narrow search to a specific project.
+  - `q` *(optional, string)*: Keyword matching task title or description.
+  - `status` *(optional)*: `BACKLOG`, `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`.
+  - `priority` *(optional)*: `LOW`, `MEDIUM`, `HIGH`, `URGENT`.
+  - `assigneeId` *(optional, UUID or "unassigned")*: Filter by assignee.
+  - `sortBy` *(optional)*: `createdAt`, `updatedAt`, `priority`, `status`, `title` (default: `updatedAt`).
+  - `order` *(optional)*: `asc` or `desc` (default: `desc`).
+  - `page` *(optional, integer)*: Default 1.
+  - `limit` *(optional, integer)*: Default 20, max 100.
+- **Response `200 OK`**:
+  ```json
+  {
+    "query": "auth",
+    "organizationId": "e2a3c790-a29d-4cb1-807d-304a43b23612",
+    "total": 3,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 1,
+    "count": 3,
+    "tasks": [
+      {
+        "id": "t201",
+        "title": "Implement Auth Middleware",
+        "status": "IN_PROGRESS",
+        "priority": "URGENT",
+        "project": {
+          "id": "p1234",
+          "name": "Backend Refactor",
+          "slug": "backend-refactor"
+        },
+        "assignee": {
+          "id": "usr_1",
+          "name": "Alex Johnson",
+          "email": "alex@example.com"
+        }
+      }
+    ]
+  }
+  ```
+
+---
+
+### 4. Organization-Scoped Search
+A RESTful convenience route directly scoped by organization ID.
+
+- **Method**: `GET`
+- **Route**: `/api/organizations/:id/search`
+- **Auth Required**: Yes
+- **Permissions Required**: Member of the organization
+- **Query Parameters**: Same as `/api/search` (`q`, `type`, `limit`).
+
 ---
 
 # Core Backend Concepts & Architecture Guide
@@ -1442,3 +1657,179 @@ When presenting this project to an interviewer or senior engineer, structure you
    > *"We treat data consistency as a first-class requirement. We use Prisma interactive transactions (`$transaction`) for atomic multi-table operations like organization creation and invitation acceptance. Database integrity is preserved via foreign keys with cascading deletes, composite unique constraints, and multi-tenant invariants."*
 4. **The Security & Resilience**:
    > *"For security, we employ Bcrypt with cost factor 12, dual JWT delivery via HTTP-only cookies and Bearer headers, and Redis-backed rate limiting with OTP brute-force defense. For developer ergonomics, SMTP failures fall back to terminal logging so endpoint testing is never blocked."*
+
+---
+
+## 5. Search, Indexing & Pagination Engineering Concepts (Senior SDE Guide)
+
+Search and pagination are critical backend capabilities. Below is the comprehensive conceptual and architectural reference explaining how database engines execute search, how indexes function under the hood, and how to scale queries in high-throughput systems.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           DATABASE SEARCH SPECTRUM                              │
+│                                                                                 │
+│   Exact & Prefix           Substring & Fuzzy        Full-Text Search (FTS)      │
+│   B-Tree Index             Trigram Index (pg_trgm)  GIN Index + tsvector        │
+│   WHERE name = 'X'         WHERE name ILIKE '%X%'   WHERE tsv @@ to_tsquery('X')│
+│   O(log N)                 O(log N)                 O(log N) Inverted Index     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### A — Pagination Architecture: Offset vs Keyset (Cursor)
+
+#### 1. Offset-Based Pagination (`OFFSET` / `LIMIT`)
+- **SQL Mechanics**:
+  ```sql
+  SELECT id, title, status, created_at 
+  FROM "Task" 
+  WHERE "projectId" = 'p-123' 
+  ORDER BY "createdAt" DESC 
+  LIMIT 20 OFFSET 100000;
+  ```
+- **How PostgreSQL Executes This Under the Hood**:
+  1. Scans the index or heap table for matching rows.
+  2. Traverses and reads **100,020 rows** into memory.
+  3. Discards the first 100,000 rows.
+  4. Returns the final 20 rows.
+- **Time Complexity**: $\mathcal{O}(N)$ where $N$ is the offset depth.
+- **The "Deep Pagination" Bottleneck**:
+  As page numbers increase (e.g., page 5,000), queries become drastically slower and consume excessive disk I/O and RAM.
+- **The "Page Drift" / Phantom Row Problem**:
+  If a new task is created while a user is on page 1, when they click "Page 2", the bottom item from page 1 shifts into page 2, causing the user to see a duplicate record.
+- **When to Use**:
+  - Administrative back-offices or dashboards where users must jump directly to a specific page number (e.g., "Go to Page 7").
+  - Small to moderate datasets (< 100,000 rows).
+
+#### 2. Keyset / Cursor-Based Pagination
+- **SQL Mechanics**:
+  Instead of an offset, the client sends the identifier of the last item received (`cursor`):
+  ```sql
+  SELECT id, title, status, created_at 
+  FROM "Task" 
+  WHERE "projectId" = 'p-123' 
+    AND ("createdAt", "id") < ('2026-10-06T10:00:00Z', 't-999')
+  ORDER BY "createdAt" DESC, "id" DESC 
+  LIMIT 20;
+  ```
+- **How PostgreSQL Executes This Under the Hood**:
+  - With a composite index on `(projectId, createdAt DESC, id DESC)`, the query engine performs a **B-Tree Index Seek** directly to the cursor position in $\mathcal{O}(\log N)$ or $\mathcal{O}(1)$.
+  - It reads only the 20 requested index tuples and returns immediately.
+- **Time Complexity**: $\mathcal{O}(1)$ independent of dataset depth.
+- **Trade-Offs**:
+  - **Pros**: Constant time $\mathcal{O}(1)$ performance; immune to page drift; perfect for infinite scrolling (Slack, Twitter, Linear feeds).
+  - **Cons**: Cannot jump to an arbitrary page (e.g. "Page 14"); requires a deterministic tie-breaker column (e.g., composite `(createdAt, id)`).
+
+#### 3. Summary Comparison Table
+
+| Dimension | Offset Pagination (`skip` / `take`) | Keyset / Cursor Pagination |
+| :--- | :--- | :--- |
+| **Prisma Usage** | `skip: (page - 1) * limit, take: limit` | `cursor: { id }, skip: 1, take: limit` |
+| **Complexity at Deep Pages** | $\mathcal{O}(N)$ (Slow at high page counts) | $\mathcal{O}(1)$ (Always fast) |
+| **Page Drift (Inserts/Deletes)** | Vulnerable to duplicate/skipped items | Completely stable |
+| **Random Page Navigation** | Supported ("Jump to page 5") | Not supported (Next / Previous only) |
+| **Total Count Overhead** | Requires expensive `SELECT COUNT(*)` | Usually omitted or cached in Redis |
+
+---
+
+### B — Database Indexing & Search Mechanics
+
+#### 1. Why `LIKE '%keyword%'` Bypasses Standard B-Tree Indexes
+In relational databases, the default index structure is a **B-Tree** (Balanced Tree).
+- A B-Tree maintains values sorted lexicographically from left to right:
+  `["Alpha", "Beta", "Gamma", "Zeta"]`
+- When you execute a prefix search `LIKE 'Beta%'`, the database traverses the tree starting at root $\rightarrow$ navigates to `"B"` in $\mathcal{O}(\log N)$ steps.
+- When you execute a substring search `LIKE '%eta%'` (as done by Prisma `{ contains: "eta" }`), the leading character is wildcarded. The database cannot determine which branch to search, forcing the query planner to switch from an **Index Scan** to a **Sequential Scan (Seq Scan)**, inspecting every single table block.
+
+#### 2. Inverted Indexes (GIN — Generalized Inverted Index)
+To make substring and full-text searches $\mathcal{O}(\log N)$, PostgreSQL uses **GIN (Generalized Inverted Index)**:
+- **Concept**:
+  Instead of mapping `RowID -> Document`, an inverted index maps `Word -> List of RowIDs`.
+  ```text
+  "auth"       -> [Task #12, Task #45, Task #90]
+  "middleware" -> [Task #12, Task #88]
+  "login"      -> [Task #3,  Task #45]
+  ```
+- **Query Execution**:
+  Searching for `"auth AND middleware"` intersects the posting lists `[12, 45, 90] ∩ [12, 88] = [12]`, completing in sub-millisecond time.
+
+#### 3. PostgreSQL Full-Text Search (FTS) with `tsvector` and `tsquery`
+PostgreSQL includes a native search engine inside the database:
+- **`tsvector`**: A parsed and normalized document representation:
+  ```sql
+  SELECT to_tsvector('english', 'Designing secure Authentication Middleware');
+  -- Output: 'authent':3 'design':1 'middlewar':4 'secur':2
+  ```
+  *(Notice: Stemmed to root words, stop-words like 'the' removed, positions stored).*
+- **`tsquery`**: The search query with logical operators (`&`, `|`, `!`):
+  ```sql
+  SELECT to_tsvector('english', 'Authentication Middleware') @@ to_tsquery('english', 'authent & middlewar');
+  -- Returns TRUE
+  ```
+- **Relevance Ranking**: `ts_rank(tsv, query)` computes TF-IDF style relevance scores to sort results by semantic relevance.
+
+#### 4. Fuzzy Substring Matching with Trigram Indexes (`pg_trgm`)
+When users mistype words or search for arbitrary substrings:
+- The `pg_trgm` extension breaks every string into 3-character slices (trigrams):
+  `"project"` $\rightarrow$ `["  p", " pr", "pro", "roj", "oje", "jec", "ect", "ct "]`
+- Creating a GIN index on trigrams:
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE INDEX idx_project_name_trgm ON "Project" USING gin (name gin_trgm_ops);
+  ```
+- Enables index-accelerated `ILIKE '%term%'` substring searches and typo-tolerant similarity queries (`similarity(name, 'projeckt') > 0.3`).
+
+#### 5. Composite Indexes & The Leftmost Prefix Rule
+In multi-tenant schemas, queries almost always filter by tenant first:
+```sql
+SELECT * FROM "Task" WHERE "projectId" = 'p1' AND "status" = 'TODO' ORDER BY "createdAt" DESC;
+```
+- **Optimal Index**:
+  `CREATE INDEX idx_task_proj_status_date ON "Task" ("projectId", "status", "createdAt" DESC);`
+- **Leftmost Prefix Rule**:
+  An index on `(A, B, C)` can satisfy queries filtering on `(A)`, `(A, B)`, or `(A, B, C)`, but **cannot** accelerate queries filtering only on `(B)` or `(C)`.
+- **Index-Only Scan**:
+  If all columns requested in `SELECT` exist in the index leaf nodes, PostgreSQL skips reading table heap pages entirely, delivering 3-5x faster responses.
+
+---
+
+### C — Dedicated Search Engines vs Relational Database Search
+
+When should an engineering team use PostgreSQL FTS vs deploying Elasticsearch / OpenSearch?
+
+```text
+┌─────────────────────────────────┬──────────────────────────────────┐
+│         POSTGRESQL FTS          │    ELASTICSEARCH / OPENSEARCH    │
+│                                 │                                  │
+│ • Single source of truth        │ • Distributed inverted indexes   │
+│ • Strong ACID consistency       │ • Near Real-Time (NRT)           │
+│ • Zero sync pipelines needed    │ • BM25 scoring & field boosting  │
+│ • Great up to 10M-50M records   │ • Billions of documents, shards  │
+│ • Low operational overhead      │ • High operational complexity    │
+└─────────────────────────────────┴──────────────────────────────────┘
+```
+
+#### When PostgreSQL Search is Best (TeamFlow Current Architecture):
+1. **Strong Data Consistency (Read-Your-Own-Writes)**: When a user creates a task, it is immediately searchable without sync lag.
+2. **Zero Architecture Sprawl**: No need to maintain and monitor a separate Java-based search cluster.
+3. **Multi-Tenant Data Isolation**: Multi-tenant constraints and row-level authorization remain strictly enforced in the database.
+
+#### When to Adopt a Dedicated Search Engine (Elasticsearch / Algolia):
+1. **Faceted Search**: E-commerce style aggregations across hundreds of filter dimensions simultaneously.
+2. **Advanced Relevance Tuning**: Custom BM25 ranking algorithms, synonym mapping ("laptop" == "notebook"), phonetic matching, and decay functions.
+3. **Data Sync Architecture**: Requires **Change Data Capture (CDC)** using Debezium and Kafka to stream WAL updates into Elasticsearch without dual-write race conditions.
+
+---
+
+### D — Senior SDE Interview Q&A on Search & Indexing
+
+#### Q1: "Why does `OFFSET 1000000 LIMIT 20` cause high database CPU and latency?"
+> *"Because PostgreSQL still has to scan and read 1,000,020 rows from disk/buffer cache, count past the first 1,000,000, and discard them before returning the 20 rows. It is an $\mathcal{O}(N)$ operation. In production, we resolve this by switching to Keyset (Cursor) pagination on `(createdAt, id)` which uses a B-Tree seek in $\mathcal{O}(1)$ time."*
+
+#### Q2: "Can a B-Tree index accelerate `WHERE title ILIKE '%auth%'`? How would you fix it?"
+> *"No. Standard B-Trees are ordered from left to right; a leading wildcard prevents the engine from navigating tree branches and forces a Sequential Scan. To fix this in PostgreSQL, we enable the `pg_trgm` extension and build a GIN index on `title gin_trgm_ops`, which indexes 3-character substrings and allows index scans for arbitrary wildcards."*
+
+#### Q3: "How do you protect multi-tenant search from cross-tenant data leaks?"
+> *"We enforce multi-tenant isolation at the query root: every search query explicitly filters on `organizationId` matching the authenticated caller's verified membership. Furthermore, search results are scoped through parent relations (`Task.project.organizationId`), preventing Insecure Direct Object Reference (IDOR) attacks even if a user knows an entity's UUID."*
+

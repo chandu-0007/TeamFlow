@@ -18,6 +18,8 @@ import {
     requireProjectLeadOrOrgAdmin,
 } from "../middleware/project.middleware.js";
 
+import { searchProjects } from "../controllers/search.controller.js";
+
 const router: ExpressRouter = Router({ mergeParams: true });
 
 // All project routes require authentication
@@ -25,6 +27,7 @@ router.use(requireAuth);
 
 router.post("/", createProject);
 router.get("/", listProjects);
+router.get("/search", searchProjects);
 
 router.get("/:id", requireProjectAccess, getProject);
 router.patch("/:id", requireProjectAccess, requireProjectLeadOrOrgAdmin, updateProject);
