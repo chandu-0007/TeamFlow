@@ -14,6 +14,7 @@ import {
     listMembers,
     listInvitations,
 } from "../controllers/organization.controller.js";
+import { globalSearch } from "../controllers/search.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { requireOrgMember, requireOrgRole } from "../middleware/organization.middleware.js";
 
@@ -33,6 +34,7 @@ router.post("/invitations/accept", acceptInvitation);
 // Organization Instance Operations
 // ----------------------------------------------------
 router.get("/:id", requireOrgMember, getOrganization);
+router.get("/:id/search", requireOrgMember, globalSearch);
 router.patch("/:id", requireOrgMember, requireOrgRole("ADMIN"), updateOrganization);
 router.delete("/:id", requireOrgMember, requireOrgRole("OWNER"), deleteOrganization);
 router.post("/:id/leave", requireOrgMember, leaveOrganization);

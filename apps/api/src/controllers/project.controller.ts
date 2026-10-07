@@ -5,7 +5,9 @@ import {
     prisma,
     type ProjectRole,
     type ProjectStatus,
+    type Prisma,
 } from "@teamflow/db";
+import { parsePagination, parseSorting, buildPaginationMeta } from "../utils/query.utils.js";
 
 function getParam(param: string | string[] | undefined): string {
     if (Array.isArray(param)) return param[0] || "";
@@ -176,33 +178,63 @@ export async function listProjects(req: Request, res: Response) {
             });
         }
 
-        const statusFilter = typeof req.query.status === "string" && (req.query.status === "ACTIVE" || req.query.status === "ARCHIVED")
-            ? (req.query.status as ProjectStatus)
-            : undefined;
+        const { search, status, sortBy: querySortBy, order: queryOrder, page: queryPage, limit: queryLimit } = req.query;
 
-        const projects = await prisma.project.findMany({
-            where: {
-                organizationId,
-                ...(statusFilter ? { status: statusFilter } : {}),
-            },
-            include: {
-                creator: {
-                    select: { id: true, name: true, email: true },
-                },
-                projectMembers: {
-                    include: {
-                        user: { select: { id: true, name: true, email: true } },
+        const where: Prisma.ProjectWhereInput = {
+            organizationId,
+        };
+
+        if (typeof status === "string" && (status === "ACTIVE" || status === "ARCHIVED")) {
+            where.status = status as ProjectStatus;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            const trimmed = search.trim();
+            where.OR = [
+                { name: { contains: trimmed, mode: "insensitive" } },
+                { slug: { contains: trimmed, mode: "insensitive" } },
+                { description: { contains: trimmed, mode: "insensitive" } },
+            ];
+        }
+
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 20);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "updatedAt", "name", "status"] as const,
+            "createdAt",
+            "desc"
+        );
+
+        const orderBy: Prisma.ProjectOrderByWithRelationInput = {
+            [sortBy]: order,
+        };
+
+        const [total, projects] = await Promise.all([
+            prisma.project.count({ where }),
+            prisma.project.findMany({
+                where,
+                skip,
+                take,
+                orderBy,
+                include: {
+                    creator: {
+                        select: { id: true, name: true, email: true },
+                    },
+                    projectMembers: {
+                        include: {
+                            user: { select: { id: true, name: true, email: true } },
+                        },
+                    },
+                    _count: {
+                        select: { projectMembers: true, tasks: true },
                     },
                 },
-                _count: {
-                    select: { projectMembers: true },
-                },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+            }),
+        ]);
 
         return res.status(200).json({
-            count: projects.length,
+            ...buildPaginationMeta(total, page, limit, projects.length),
             projects,
         });
     } catch (error) {
@@ -441,16 +473,57 @@ export async function listProjectMembers(req: Request, res: Response) {
     const projectId = getParam(req.params.id) || getParam(req.params.projectId);
 
     try {
-        const members = await prisma.projectMember.findMany({
-            where: { projectId },
-            include: {
-                user: { select: { id: true, name: true, email: true } },
-            },
-            orderBy: { createdAt: "asc" },
-        });
+        const { search, role, sortBy: querySortBy, order: queryOrder, page: queryPage, limit: queryLimit } = req.query;
+
+        const where: Prisma.ProjectMemberWhereInput = {
+            projectId,
+        };
+
+        if (typeof role === "string" && (role === "TEAMLEAD" || role === "MEMBER")) {
+            where.role = role as ProjectRole;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            const trimmed = search.trim();
+            where.user = {
+                OR: [
+                    { name: { contains: trimmed, mode: "insensitive" } },
+                    { email: { contains: trimmed, mode: "insensitive" } },
+                ],
+            };
+        }
+
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 20);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "role", "name", "email"] as const,
+            "createdAt",
+            "asc"
+        );
+
+        let orderBy: Prisma.ProjectMemberOrderByWithRelationInput;
+        if (sortBy === "name" || sortBy === "email") {
+            orderBy = { user: { [sortBy]: order } };
+        } else {
+            orderBy = { [sortBy]: order };
+        }
+
+        const [total, members] = await Promise.all([
+            prisma.projectMember.count({ where }),
+            prisma.projectMember.findMany({
+                where,
+                skip,
+                take,
+                orderBy,
+                include: {
+                    user: { select: { id: true, name: true, email: true } },
+                },
+            }),
+        ]);
 
         return res.status(200).json({
-            count: members.length,
+            ...buildPaginationMeta(total, page, limit, members.length),
             members,
         });
     } catch (error) {

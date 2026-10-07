@@ -6,6 +6,7 @@ import {
     type TaskPriority,
     type Prisma,
 } from "@teamflow/db";
+import { parsePagination, parseSorting, buildPaginationMeta } from "../utils/query.utils.js";
 
 function getParam(param: string | string[] | undefined): string {
     if (Array.isArray(param)) return param[0] || "";
@@ -177,10 +178,10 @@ export async function listTasks(req: Request, res: Response) {
             priority,
             assigneeId,
             search,
-            sortBy = "createdAt",
-            order = "desc",
-            page = "1",
-            limit = "50",
+            sortBy: querySortBy,
+            order: queryOrder,
+            page: queryPage,
+            limit: queryLimit,
         } = req.query;
 
         const where: Prisma.TaskWhereInput = {
@@ -200,27 +201,33 @@ export async function listTasks(req: Request, res: Response) {
         }
 
         if (typeof search === "string" && search.trim()) {
+            const trimmed = search.trim();
             where.OR = [
-                { title: { contains: search.trim(), mode: "insensitive" } },
-                { description: { contains: search.trim(), mode: "insensitive" } },
+                { title: { contains: trimmed, mode: "insensitive" } },
+                { description: { contains: trimmed, mode: "insensitive" } },
             ];
         }
 
-        const validSortFields = ["createdAt", "updatedAt", "priority", "status", "title"];
-        const sortField = typeof sortBy === "string" && validSortFields.includes(sortBy) ? sortBy : "createdAt";
-        const sortOrder = order === "asc" ? "asc" : "desc";
+        const { page, limit, skip, take } = parsePagination(queryPage, queryLimit, 50);
+        const { sortBy, order } = parseSorting(
+            querySortBy,
+            queryOrder,
+            ["createdAt", "updatedAt", "priority", "status", "title"] as const,
+            "createdAt",
+            "desc"
+        );
 
-        const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-        const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
-        const skip = (pageNum - 1) * limitNum;
+        const orderBy: Prisma.TaskOrderByWithRelationInput = {
+            [sortBy]: order,
+        };
 
         const [total, tasks] = await Promise.all([
             prisma.task.count({ where }),
             prisma.task.findMany({
                 where,
                 skip,
-                take: limitNum,
-                orderBy: { [sortField]: sortOrder },
+                take,
+                orderBy,
                 include: {
                     creator: {
                         select: { id: true, name: true, email: true },
@@ -233,11 +240,7 @@ export async function listTasks(req: Request, res: Response) {
         ]);
 
         return res.status(200).json({
-            count: tasks.length,
-            total,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(total / limitNum),
+            ...buildPaginationMeta(total, page, limit, tasks.length),
             tasks,
         });
     } catch (error) {
